@@ -13,7 +13,7 @@ from __future__ import annotations
 import asyncio
 import sys
 
-from app.bot import create_bot, create_dispatcher
+from app.app import create_bot, create_dispatcher
 from app.config import get_settings
 from app.lifecycle import shutdown, startup
 from app.logging_config import get_logger
