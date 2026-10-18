@@ -1,0 +1,48 @@
+version: "3.9"
+
+services:
+  db:
+    image: postgres:16-alpine
+    environment:
+      POSTGRES_USER: guardian
+      POSTGRES_PASSWORD: guardian_dev_only
+      POSTGRES_DB: sombra_guardian
+    ports:
+      - "5432:5432"
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U guardian -d sombra_guardian"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
+  bot:
+    build: .
+    depends_on:
+      db:
+        condition: service_healthy
+    env_file:
+      - .env
+    environment:
+      # Override DATABASE_URL to use the compose service name
+      DATABASE_URL: postgresql+asyncpg://guardian:guardian_dev_only@db:5432/sombra_guardian
+    restart: unless-stopped
+    volumes:
+      # Mount source for dev hot-reload (remove for production)
+      - .:/app
+
+  migrate:
+    build: .
+    depends_on:
+      db:
+        condition: service_healthy
+    env_file:
+      - .env
+    environment:
+      DATABASE_URL: postgresql+asyncpg://guardian:guardian_dev_only@db:5432/sombra_guardian
+    command: ["alembic", "upgrade", "head"]
+    restart: "no"
+
+volumes:
+  pgdata:
