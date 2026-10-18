@@ -49,7 +49,7 @@ class _RetryableHTTPError(Exception):
         super().__init__(f"HTTP {status_code}")
         
         
-class class ProviderError(Exception):
+class ProviderError(Exception):
     """Non-retryable provider error surfaced to callers."""
 
 
