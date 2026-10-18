@@ -187,3 +187,109 @@ class AuditLog(Base):
 
     def __repr__(self) -> str:
         return f"<AuditLog action={self.action!r} actor={self.actor_telegram_id}>"
+
+# ── Payment Invoices ───────────────────────────────────────────────────────────
+
+
+class InvoiceStatus:
+    """String constants for invoice_payments.status — never use raw literals."""
+
+    PENDING = "pending"
+    DETECTED = "detected"
+    CONFIRMED = "confirmed"
+    EXPIRED = "expired"
+    UNDERPAID = "underpaid"
+    OVERPAID = "overpaid"
+
+    # Transitions allowed at Phase 2A (no blockchain evidence yet):
+    #   pending  → expired           (expiry sweep)
+    #   pending  → detected          (Phase 2B: receipt signal)
+    #   detected → confirmed         (Phase 2B: on-chain confirmation)
+    #   detected → underpaid         (Phase 2B: amount check)
+    #   detected → overpaid          (Phase 2B: amount check)
+    # Confirmed, underpaid, overpaid are terminal in Phase 2A.
+
+    _ALLOWED: dict[str, frozenset[str]] = {
+        PENDING: frozenset({EXPIRED, DETECTED}),
+        DETECTED: frozenset({CONFIRMED, UNDERPAID, OVERPAID}),
+        CONFIRMED: frozenset(),
+        EXPIRED: frozenset(),
+        UNDERPAID: frozenset(),
+        OVERPAID: frozenset(),
+    }
+
+    @classmethod
+    def can_transition(cls, current: str, next_: str) -> bool:
+        return next_ in cls._ALLOWED.get(current, frozenset())
+
+
+class InvoicePayment(Base):
+    """
+    Payment invoice — records expected TON receipt for an internal order.
+
+    Security notes:
+    - No private keys or seed phrases are stored here.
+    - `provider_tx_ref` is a sanitized event ID, not a raw provider dump.
+    - Amounts are stored in integer nanotons. Float is never used.
+    - Confirmed status requires verified blockchain evidence (Phase 2B+).
+    """
+
+    __tablename__ = "invoice_payments"
+    __table_args__ = (
+        UniqueConstraint("public_ref", name="uq_invoice_public_ref"),
+        Index("ix_invoice_user_id", "user_id"),
+        Index("ix_invoice_status", "status"),
+        Index("ix_invoice_expires_at", "expires_at"),
+    )
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+
+    # Opaque token shown to the payer — UUID4, never auto-incremented int
+    public_ref: Mapped[str] = mapped_column(String(64), nullable=False)
+
+    # FK to the internal user table (not the Telegram ID — internal PK)
+    user_id: Mapped[int] = mapped_column(
+        Integer, ForeignKey("users.id", ondelete="CASCADE"), nullable=False
+    )
+
+    # Asset type — TON initially; extendable for Jettons in a future migration
+    asset_type: Mapped[str] = mapped_column(
+        String(32), nullable=False, default="TON"
+    )
+
+    # Exact nanoton amount — integer only, no float
+    amount_nanotons: Mapped[int] = mapped_column(BigInteger, nullable=False)
+
+    # Lifecycle timestamps
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), default=_utcnow, server_default=func.now()
+    )
+    expires_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), nullable=False
+    )
+
+    # Payment state machine
+    status: Mapped[str] = mapped_column(
+        String(32), nullable=False, default=InvoiceStatus.PENDING
+    )
+
+    # Sanitized provider event ID — set only when a matching tx is detected
+    provider_tx_ref: Mapped[str | None] = mapped_column(String(256), nullable=True)
+
+    # Set by Phase 2B when a candidate transaction is seen
+    detected_at: Mapped[datetime | None] = mapped_column(
+        DateTime(timezone=True), nullable=True
+    )
+
+    # Set by Phase 2B when the transaction reaches finality
+    confirmed_at: Mapped[datetime | None] = mapped_column(
+        DateTime(timezone=True), nullable=True
+    )
+
+    user: Mapped["User"] = relationship("User")
+
+    def __repr__(self) -> str:
+        return (
+            f"<InvoicePayment ref={self.public_ref!r} "
+            f"status={self.status!r} nanotons={self.amount_nanotons}>"
+        )
