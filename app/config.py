@@ -66,7 +66,7 @@ class Settings(BaseSettings):
             raise ValueError(f"log_level must be one of {valid}")
         return upper
         
-    @field_validator("admin_user_ids", mode="before")h
+    @field_validator("admin_user_ids", mode="before")
     @classmethod
     def parse_admin_ids(cls, v: object) -> list[int]:
         """Accept comma-separated string or list."""
