@@ -65,3 +65,49 @@ class Settings(BaseSettings):
         if upper not in valid:
             raise ValueError(f"log_level must be one of {valid}")
         return upper
+        
+    @field_validator("admin_user_ids", mode="before")h
+    @classmethod
+    def parse_admin_ids(cls, v: object) -> list[int]:
+        """Accept comma-separated string or list."""
+        if isinstance(v, str):
+            return [int(x.strip()) for x in v.split(",") if x.strip()]
+        if isinstance(v, list):
+            return [int(x) for x in v]
+        return []
+        
+    @model_validator(mode="after")
+    def warn_on_empty_admin_list(self) -> "Settings":
+        if not self.admin_user_ids:
+            import warnings
+            warnings.warn(
+                "ADMIN_USER_IDS is empty — no users will have admin access",
+                stacklevel=2,
+            )
+        return self
+        
+    # ── Convenience accessors that never log the raw secret ───────────────────
+    @property
+    def bot_token(self) -> str:
+        return self.telegram_bot_token.get_secret_value()
+        
+    @property
+    def db_url(self) -> str:
+        return self.database_url.get_secret_value()
+
+    @property
+    def tonapi_key(self) -> str:
+        return self.tonapi_api_key.get_secret_value()
+
+    def is_admin(self, user_id: int) -> bool:
+        return user_id in self.admin_user_ids
+        
+        
+@lru_cache(maxsize=1)
+def get_settings() -> Settings:
+    """
+    Return the singleton Settings instance.
+    Raises ValidationError (with field name but NOT secret values) if any
+    required env var is missing.
+    """
+    return Settings()
