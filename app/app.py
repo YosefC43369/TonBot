@@ -1,4 +1,4 @@
-
+"""
 Telegram bot and dispatcher initialization.
 
 Registers all routers and middlewares.
